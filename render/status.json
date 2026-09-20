@@ -1,7 +1,6 @@
 {
-  "state": "busy",
-  "label": "Ttt",
+  "state": "free",
+  "label": "",
   "booking_url": "https://calendar.app.google/KgG98T8KkWGt7KpF8",
-  "last_fetch": "2026-09-20T18:44:07.049924+00:00",
-  "until": "2026-09-20T18:46:07.049924+00:00"
+  "last_fetch": "2026-09-20T18:51:49.436044+00:00"
 }
