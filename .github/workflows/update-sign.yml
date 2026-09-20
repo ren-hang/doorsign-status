@@ -58,14 +58,16 @@ jobs:
           python3 - <<'PYEOF'
           import json, os
           from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
 
           BOOKING_URL = "https://calendar.app.google/KgG98T8KkWGt7KpF8"
+          TZ = ZoneInfo("America/Chicago")
 
           state = os.environ.get("STATE", "free")
           minutes_str = os.environ.get("MINUTES", "")
           label = os.environ.get("LABEL", "")
 
-          now = datetime.now().astimezone()
+          now = datetime.now(TZ)
           data = {
               "state": state,
               "label": label,
