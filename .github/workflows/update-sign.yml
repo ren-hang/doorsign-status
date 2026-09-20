@@ -1,0 +1,100 @@
+name: Update door sign
+
+# Triggered by the iOS Shortcut via the GitHub API:
+#
+#   POST https://api.github.com/repos/{owner}/{repo}/dispatches
+#   Authorization: Bearer {fine-grained PAT, contents: write}
+#   Content-Type: application/json
+#
+#   {
+#     "event_type": "update-sign",
+#     "client_payload": {
+#       "state":   "busy" | "free" | "away",
+#       "minutes": "30",          (integer as string; omit or "" for indefinite)
+#       "label":   "In meeting"   (optional free text)
+#     }
+#   }
+#
+# After this runs, render/sign.bin is committed to this repo.
+# The ESP32 firmware should fetch from:
+#   https://raw.githubusercontent.com/{owner}/{repo}/main/render/sign.bin
+#
+# If you want sign.bin to land in a separate public repo (doorsign-status)
+# instead, store a PAT with write access to that repo as a secret named
+# DOORSIGN_PAT, then replace the "Commit and push" step with a cross-repo push:
+#   git clone https://x-access-token:${{ secrets.DOORSIGN_PAT }}@github.com/{owner}/doorsign-status.git out
+#   cp render/sign.bin out/sign.bin && cd out
+#   git add sign.bin && git commit -m "..." && git push
+
+on:
+  repository_dispatch:
+    types: [update-sign]
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system fonts
+        run: sudo apt-get install -y fonts-dejavu-core
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install Pillow qrcode[pil]
+
+      - name: Build status.json from dispatch payload
+        env:
+          STATE: ${{ github.event.client_payload.state }}
+          MINUTES: ${{ github.event.client_payload.minutes }}
+          LABEL: ${{ github.event.client_payload.label }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          from datetime import datetime, timedelta
+
+          BOOKING_URL = "https://calendar.app.google/KgG98T8KkWGt7KpF8"
+
+          state = os.environ.get("STATE", "free")
+          minutes_str = os.environ.get("MINUTES", "")
+          label = os.environ.get("LABEL", "")
+
+          now = datetime.now().astimezone()
+          data = {
+              "state": state,
+              "label": label,
+              "booking_url": BOOKING_URL,
+              "last_fetch": now.isoformat(),
+          }
+          if state == "busy":
+              minutes = int(minutes_str) if minutes_str else 30
+              data["until"] = (now + timedelta(minutes=minutes)).isoformat()
+          elif state == "away" and minutes_str:
+              data["until"] = (now + timedelta(minutes=int(minutes_str))).isoformat()
+
+          with open("render/status.json", "w") as f:
+              json.dump(data, f, indent=2)
+          print(json.dumps(data, indent=2))
+          PYEOF
+
+      - name: Render sign.bin
+        run: python3 render/render.py render/status.json render/sign.png --raw
+
+      - name: Commit and push
+        env:
+          STATE: ${{ github.event.client_payload.state }}
+          MINUTES: ${{ github.event.client_payload.minutes }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add render/sign.bin render/sign.png render/status.json
+          MSG="sign: ${STATE}"
+          [ -n "${MINUTES}" ] && MSG="${MSG} ${MINUTES}min"
+          git diff --cached --quiet || git commit -m "${MSG}"
+          git push
